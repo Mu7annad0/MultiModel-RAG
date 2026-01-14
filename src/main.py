@@ -1,0 +1,42 @@
+from fastapi import FastAPI, File, UploadFile, status, Depends
+from fastapi.responses import JSONResponse
+
+from src.cfg import Settings, load_settings
+from src.data import DataController
+
+
+app = FastAPI()
+
+@app.get("/")
+async def print_info(app_settings: Settings = Depends(load_settings)):
+    supported_file_types = app_settings.FILE_FORMATS
+    max_file_pages = app_settings.FILE_PAGES
+
+    return {
+        "supported_file_types": supported_file_types,
+        "max_file_pages": max_file_pages
+    }
+
+
+@app.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    settings: Settings = Depends(load_settings),
+):
+    data_controller = DataController()
+    
+    valid, message = await data_controller.validate(file=file)
+    if not valid:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            content={
+                "error": message
+            }
+        )
+    
+    return JSONResponse(
+        status_code=status.HTTP_200_OK, 
+        content={
+            "message": message
+        }
+    )
