@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "MultiModel-RAG"
+version = "0.1.0"
+description = "AI service that routes requests to different LLMs, applies caching, logs cost per request, and handles fallbacks."
+authors = [
+    { name = "Muhammad Ashraf" }
+]
+requires-python = ">=3.10"
+
+dependencies = [
+    "fastapi[standard]==0.128.0",
+    "langchain-community==0.4.1",
+    "pydantic-settings==2.12.0",
+    "aiofiles==25.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
