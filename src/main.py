@@ -1,12 +1,33 @@
+import uuid
+import logging
 from fastapi import FastAPI, File, UploadFile, status, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from src.cfg import Settings, load_settings
-from src.data import DataController
-from src.clients.embedding import EmbeddingClient
+from src.controller import Controller, ChatRequest
+from src.clients import EmbeddingClient, QrantVectorDB, GenerationClient, TTSClient
+from src.chat_history import ChatHistoryManager
 
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        settings = load_settings()
+        app.vdb_client = QrantVectorDB(db_dir=settings.DB_DIR)
+        app.vdb_client.connect()
+        app.embedding_client = EmbeddingClient(settings)
+        app.tts_client = TTSClient(settings)
+        app.chat_history_manager = ChatHistoryManager()
+    except Exception as e:
+        logger.error(f"Error during startup: {str(e)}")
+        raise
+
 
 @app.get("/")
 async def print_info(app_settings: Settings = Depends(load_settings)):
@@ -15,7 +36,7 @@ async def print_info(app_settings: Settings = Depends(load_settings)):
 
     return {
         "supported_file_types": supported_file_types,
-        "max_file_pages": max_file_pages
+        "max_file_pages": max_file_pages,
     }
 
 
@@ -24,31 +45,123 @@ async def upload_file(
     file: UploadFile = File(...),
     settings: Settings = Depends(load_settings),
 ):
-    embedding_client = EmbeddingClient(settings)
-    data_controller = DataController(embedding_client)
-    
-    valid, message, file_path = await data_controller.validate(file=file)
-    if not valid:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            content={
-                "error": message
-            }
-        )
-    
-    chunks, no_of_chunks = data_controller.split_text(
-        file_path=file_path,
-        chunk_size=settings.CHUNK_SIZE,
-        chunk_overlap=settings.CHUNK_OVERLAP
-    )
-    # Extract text content from Document objects
-    chunk_texts = [chunk.page_content for chunk in chunks]
+    try:
+        logger.info(f"Received file upload request: {file.filename}")
 
-    embeddings = data_controller.index(chunk_texts)
+        controller = Controller(
+            embedding_client=app.embedding_client, vdb_client=app.vdb_client
+        )
+
+        logger.info("Validating file...")
+        valid, message, file_path = await controller.validate(file=file)
+        if not valid:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST, content={"error": message}
+            )
+
+        logger.info("Splitting text into chunks...")
+
+        chunks, no_of_chunks = controller.split_text(
+            file_path=file_path,
+            chunk_size=settings.CHUNK_SIZE,
+            chunk_overlap=settings.CHUNK_OVERLAP,
+        )
+
+        logger.info(f"Created {no_of_chunks} chunks")
+
+        document_id = str(uuid.uuid4())
+        logger.info(f"Indexing document with ID: {document_id}")
+
+        success, message = controller.index_document(chunks, document_id)
+
+        if not success:
+            logger.error(f"Failed to index document: {message}")
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"error": message},
+            )
+
+        logger.info(f"Document indexed successfully: {document_id}")
+        app.document_id = document_id
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "message": "Document indexed successfully",
+                "document_id": document_id,
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Unhandled exception in upload_file: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": f"Internal server error: {str(e)}"},
+        )
+
+
+@app.post("/chat")
+async def chat(chat_request: ChatRequest):
+    settings = load_settings()
+    try:
+        generation_client = GenerationClient(
+            settings=settings,
+            provider=chat_request.provider,
+        )
+        logger.info(f"Generation client created with provider: {chat_request.provider}")
+    except Exception as e:
+        logger.error(f"Failed to create generation client: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": f"Internal server error: {str(e)}"},
+        )
+
+    history = app.chat_history_manager.get_history(chat_request.document_id)
+
+    controller = Controller(
+        embedding_client=app.embedding_client,
+        vdb_client=app.vdb_client,
+        generation_client=generation_client,
+        tts_client=app.tts_client,
+        chat_history_manager=app.chat_history_manager,
+        document_id=chat_request.document_id,
+    )
+    audio_file = None
+
+    if settings.STREAMING and not chat_request.generate_audio:
+        return StreamingResponse(
+            controller.answer_stream(
+                document_id=chat_request.document_id,
+                query=chat_request.query,
+                chat_history=history,
+            ),
+            media_type="text/plain"
+    )
+
+    answer, chunks = controller.answer(
+        document_id=chat_request.document_id,
+        query=chat_request.query,
+        chat_history=history,
+    )
+    if not answer:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": "Failed to generate answer"},
+        )
+
+    if chat_request.generate_audio:
+        logger.info("Generating audio...")
+        audio_file = controller.generate_audio(answer)
+        if not audio_file:
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"error": "Failed to generate audio"},
+            )
+    
     return JSONResponse(
-        status_code=status.HTTP_200_OK, 
+        status_code=status.HTTP_200_OK,
         content={
-            "message": "processed correctly",
-            "embeddings": embeddings[:1]
-        }
+            "answer": answer,
+            "chunks": chunks,
+            "audio_file": str(audio_file) if audio_file else None,
+        },
     )
