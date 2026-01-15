@@ -71,4 +71,4 @@ class EmbeddingClient:
             except Exception as e:
                 self.logger.error(f"Error while embedding text with Cohere: {str(e)}")
                 return None
-        
+        return None
