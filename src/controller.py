@@ -135,7 +135,7 @@ class Controller:
     def answer(self, document_id: str, query: str, chat_history: List = None, limit: int = 5):
         retrieved_results = self.search(document_id, query, limit)
         if not retrieved_results:
-            return None
+            return None, []
 
         if not chat_history:
             system_content = prompt.SYSTEM_PROMPT.substitute()
@@ -167,17 +167,29 @@ class Controller:
         if self.chat_history_manager:
             self.chat_history_manager.save_history(document_id, chat_history)
 
-        return answer, documents_prompt
+        chunks = [
+            f'In Page. {doc.metadata["page"]}:  "{doc.text}"'
+            for doc in retrieved_results
+        ]
 
-    def answer_stream(self, document_id: str, query: str, chat_history: List = None, limit: int = 5) -> Generator[str, None, None]:
+        return answer, chunks
+
+    def answer_stream(
+        self, document_id: str, query: str, chat_history: List = None, limit: int = 5
+    ):
         retrieved_results = self.search(document_id, query, limit)
         if not retrieved_results:
-            yield "No relevant documents found."
+            yield ("text", "No relevant documents found.")
+            yield ("chunks", [])
             return
 
         if not chat_history:
             system_content = prompt.SYSTEM_PROMPT.substitute()
-            chat_history = [self.generation_client.construct_prompt(query=system_content, role="system")]
+            chat_history = [
+                self.generation_client.construct_prompt(
+                    query=system_content, role="system"
+                )
+            ]
 
         documents_prompt = "\n".join(
             prompt.DOCUMENT_PROMPT.substitute(doc_no=idx + 1, doc_content=doc.text)
@@ -187,19 +199,31 @@ class Controller:
         final_prompt = f"{documents_prompt}\n\n{footer_text}"
 
         full_answer = ""
-        for chunk in self.generation_client.answer_stream(prompt=final_prompt, chat_history=chat_history):
+        for chunk in self.generation_client.answer_stream(
+            prompt=final_prompt, chat_history=chat_history
+        ):
             full_answer += chunk
-            yield chunk
+            yield ("text", chunk)
 
-        chat_history.append(self.generation_client.construct_prompt(query=query, role="user"))
-        chat_history.append(self.generation_client.construct_prompt(query=full_answer, role="assistant"))
+        chat_history.append(
+            self.generation_client.construct_prompt(query=query, role="user")
+        )
+        chat_history.append(
+            self.generation_client.construct_prompt(query=full_answer, role="assistant")
+        )
 
         if self.chat_history_manager:
             self.chat_history_manager.save_history(document_id, chat_history)
 
-    def generate_audio(self, query: str):
+        chunks = [
+            f'In Page.{doc.metadata["page"]}:  "{doc.text}"'
+            for doc in retrieved_results
+        ]
+        yield ("chunks", chunks)
+
+    def generate_audio(self, query: str, response_index: int):
         if self.tts_client:
-            return self.tts_client.generate(query)
+            return self.tts_client.generate(query, response_index)
         return None
 
     def _change_file_name(self, current_name: str) -> str:

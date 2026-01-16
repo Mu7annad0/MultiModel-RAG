@@ -1,7 +1,10 @@
+import os
 import uuid
 import logging
+import json
 from fastapi import FastAPI, File, UploadFile, status, Depends
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.cfg import Settings, load_settings
 from src.controller import Controller, ChatRequest
@@ -14,6 +17,14 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -24,6 +35,7 @@ async def startup_event():
         app.embedding_client = EmbeddingClient(settings)
         app.tts_client = TTSClient(settings)
         app.chat_history_manager = ChatHistoryManager()
+        app.audio_response_counter = 1
     except Exception as e:
         logger.error(f"Error during startup: {str(e)}")
         raise
@@ -128,14 +140,7 @@ async def chat(chat_request: ChatRequest):
     audio_file = None
 
     if settings.STREAMING and not chat_request.generate_audio:
-        return StreamingResponse(
-            controller.answer_stream(
-                document_id=chat_request.document_id,
-                query=chat_request.query,
-                chat_history=history,
-            ),
-            media_type="text/plain"
-    )
+        pass
 
     answer, chunks = controller.answer(
         document_id=chat_request.document_id,
@@ -150,13 +155,15 @@ async def chat(chat_request: ChatRequest):
 
     if chat_request.generate_audio:
         logger.info("Generating audio...")
-        audio_file = controller.generate_audio(answer)
+        response_index = app.audio_response_counter
+        app.audio_response_counter += 1
+        audio_file = controller.generate_audio(answer, response_index)
         if not audio_file:
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={"error": "Failed to generate audio"},
             )
-    
+
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
@@ -165,3 +172,20 @@ async def chat(chat_request: ChatRequest):
             "audio_file": str(audio_file) if audio_file else None,
         },
     )
+
+
+@app.get("/audio/{filename}")
+async def get_audio(filename: str):
+    """Serve audio files from the voices directory."""
+    base_dir = os.path.dirname(os.path.dirname(__file__))
+    voices_dir = os.path.join(base_dir, "voices")
+    file_path = os.path.join(voices_dir, filename)
+
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="audio/mpeg")
+    else:
+        logger.error(f"Audio file not found: {file_path}")
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "Audio file not found"},
+        )
