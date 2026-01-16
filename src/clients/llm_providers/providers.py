@@ -45,14 +45,14 @@ class OpenAIProvider(LLMProvider):
         )
         return response.choices[0].message.content
     
-    def generate_stream(self, prompt: str, chat_history: list=[]) -> Generator[str, None, None]:
+    async def generate_stream(self, prompt: str, chat_history: list=[]) -> Generator[str, None, None]:
         messages = chat_history + [{"role": "user", "content": prompt}]
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             stream=True
         )
-        for chunk in response:
+        async for chunk in response:
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
 
