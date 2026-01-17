@@ -1,14 +1,13 @@
 import os
 import uuid
 import logging
-import json
 from fastapi import FastAPI, File, UploadFile, status, Depends
-from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.cfg import Settings, load_settings
 from src.controller import Controller, ChatRequest
-from src.clients import EmbeddingClient, QrantVectorDB, GenerationClient, TTSClient
+from src.clients import EmbeddingClient, QrantVectorDB, GenerationClient, TTSClient, AdvancedRAGClient
 from src.chat_history import ChatHistoryManager
 
 
@@ -119,6 +118,7 @@ async def chat(chat_request: ChatRequest):
             settings=settings,
             provider=chat_request.provider,
         )
+        advancedrag_client = AdvancedRAGClient(settings)
         logger.info(f"Generation client created with provider: {chat_request.provider}")
     except Exception as e:
         logger.error(f"Failed to create generation client: {str(e)}", exc_info=True)
@@ -133,6 +133,7 @@ async def chat(chat_request: ChatRequest):
         embedding_client=app.embedding_client,
         vdb_client=app.vdb_client,
         generation_client=generation_client,
+        advancedrag_client=advancedrag_client,
         tts_client=app.tts_client,
         chat_history_manager=app.chat_history_manager,
         document_id=chat_request.document_id,
@@ -142,10 +143,11 @@ async def chat(chat_request: ChatRequest):
     if settings.STREAMING and not chat_request.generate_audio:
         pass
 
-    answer, chunks = controller.answer(
+    answer, chunks = await controller.answer(
         document_id=chat_request.document_id,
         query=chat_request.query,
         chat_history=history,
+        filter=settings.FILTER,
     )
     if not answer:
         return JSONResponse(

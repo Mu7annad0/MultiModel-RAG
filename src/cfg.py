@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     EMBEDDING_PROVIDER: Literal["openai", "gemini", "cohere"]
     EMBEDDING_DIMENSION: int
 
+    FILTER: bool
+
     STREAMING: bool
 
     FILE_PAGES: int

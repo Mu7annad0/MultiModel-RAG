@@ -3,7 +3,7 @@ import os
 import string
 import random
 import aiofiles
-from typing import List, Literal, Generator
+from typing import List, Literal
 from pydantic import BaseModel
 from fastapi import UploadFile
 from langchain_community.document_loaders import PyMuPDFLoader
@@ -19,6 +19,7 @@ class Controller:
         embedding_client,
         vdb_client,
         generation_client=None,
+        advancedrag_client=None,
         tts_client=None,
         chat_history_manager=None,
         document_id=None,
@@ -30,6 +31,7 @@ class Controller:
         self.embedding_client = embedding_client
         self.vdb_client = vdb_client
         self.generation_client = generation_client
+        self.advancedrag_client = advancedrag_client
         self.tts_client = tts_client
         self.chat_history_manager = chat_history_manager
         self.document_id = document_id
@@ -121,19 +123,26 @@ class Controller:
         except Exception as e:
             return False, f"Error indexing document: {str(e)}"
 
-    def search(self, document_id: str, query: str, limit: int = 5):
+    async def search(self, document_id: str, query: str, limit: int = 5, filter: bool = False):
         collection_name = f"document_{document_id}"
         try:
             vectors = self.embedding_client.embed(text=query)[0]
             results = self.vdb_client.search(
-                collection_name=collection_name, query_vector=vectors, limit=5
+                collection_name=collection_name, query_vector=vectors, limit=limit
             )
+            if filter:
+                indices = await self.advancedrag_client.filter_chunks(
+                    prompt = prompt.FILTER_PROMPT, 
+                    question = query, 
+                    chunks = results
+                )
+                results = [results[i] for i in indices]
             return results
         except Exception as e:
-            return False, f"Error searching document: {str(e)}"
+            return []
 
-    def answer(self, document_id: str, query: str, chat_history: List = None, limit: int = 5):
-        retrieved_results = self.search(document_id, query, limit)
+    async def answer(self, document_id: str, query: str, chat_history: List = None, limit: int = 5, filter: bool = False):
+        retrieved_results = await self.search(document_id, query, limit, filter)
         if not retrieved_results:
             return None, []
 
@@ -174,10 +183,8 @@ class Controller:
 
         return answer, chunks
 
-    def answer_stream(
-        self, document_id: str, query: str, chat_history: List = None, limit: int = 5
-    ):
-        retrieved_results = self.search(document_id, query, limit)
+    async def answer_stream(self, document_id: str, query: str, chat_history: List = None, limit: int = 5):
+        retrieved_results = await self.search(document_id, query, limit)
         if not retrieved_results:
             yield ("text", "No relevant documents found.")
             yield ("chunks", [])
