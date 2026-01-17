@@ -3,6 +3,7 @@ import os
 import string
 import random
 import aiofiles
+import logging
 from typing import List, Literal
 from pydantic import BaseModel
 from fastapi import UploadFile
@@ -35,6 +36,8 @@ class Controller:
         self.tts_client = tts_client
         self.chat_history_manager = chat_history_manager
         self.document_id = document_id
+        setup_logging()
+        self.logger = logging.getLogger(__name__)
 
     async def validate(self, file: UploadFile):
         # check file type
@@ -94,10 +97,10 @@ class Controller:
         )
         return chunks, len(chunks)
 
-    def index_document(self, chunks: List[str], document_id: str):
+    async def index_document(self, chunks: List[str], document_id: str):
         try:
             index_name = f"document_{document_id}"
-            success = self.vdb_client.create_collection(
+            success = await self.vdb_client.create_collection(
                 collection_name=index_name,
                 vector_size=self.settings.EMBEDDING_DIMENSION,
             )
@@ -107,8 +110,8 @@ class Controller:
             texts = [chunk.page_content for chunk in chunks]
             metadata = [chunk.metadata for chunk in chunks]
 
-            embeddings = self.embedding_client.embed(text=texts)
-            success = self.vdb_client.insert(
+            embeddings = await self.embedding_client.embed(text=texts)
+            success = await self.vdb_client.insert(
                 collection_name=index_name,
                 texts=texts,
                 vectors=embeddings,
@@ -126,19 +129,22 @@ class Controller:
     async def search(self, document_id: str, query: str, limit: int = 5, filter: bool = False):
         collection_name = f"document_{document_id}"
         try:
-            vectors = self.embedding_client.embed(text=query)[0]
-            results = self.vdb_client.search(
+            embedding_result = await self.embedding_client.embed(text=query)
+            if not embedding_result or len(embedding_result) == 0:
+                self.logger.error("Failed to generate embedding for query")
+                return []
+            vectors = embedding_result[0]
+            results = await self.vdb_client.search(
                 collection_name=collection_name, query_vector=vectors, limit=limit
             )
             if filter:
                 indices = await self.advancedrag_client.filter_chunks(
-                    prompt = prompt.FILTER_PROMPT, 
-                    question = query, 
-                    chunks = results
+                    prompt=prompt.FILTER_PROMPT, question=query, chunks=results
                 )
                 results = [results[i] for i in indices]
             return results
         except Exception as e:
+            self.logger.error(f"Error searching for document: {str(e)}")
             return []
 
     async def answer(self, document_id: str, query: str, chat_history: List = None, limit: int = 5, filter: bool = False):
@@ -163,7 +169,7 @@ class Controller:
 
         final_prompt = f"{documents_prompt}\n\n{footer_text}"
 
-        answer = self.generation_client.answer(
+        answer = await self.generation_client.answer(
             prompt=final_prompt, chat_history=chat_history
         )
         chat_history.append(
@@ -206,7 +212,7 @@ class Controller:
         final_prompt = f"{documents_prompt}\n\n{footer_text}"
 
         full_answer = ""
-        for chunk in self.generation_client.answer_stream(
+        async for chunk in self.generation_client.answer_stream(
             prompt=final_prompt, chat_history=chat_history
         ):
             full_answer += chunk

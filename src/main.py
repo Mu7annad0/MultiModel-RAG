@@ -7,11 +7,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.cfg import Settings, load_settings
 from src.controller import Controller, ChatRequest
-from src.clients import EmbeddingClient, QrantVectorDB, GenerationClient, TTSClient, AdvancedRAGClient
+from src.logging import setup_logging
+from src.clients import (
+    EmbeddingClient,
+    QrantVectorDB,
+    GenerationClient,
+    TTSClient,
+    AdvancedRAGClient,
+)
 from src.chat_history import ChatHistoryManager
 
 
-logging.basicConfig(level=logging.INFO)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -83,7 +90,7 @@ async def upload_file(
         document_id = str(uuid.uuid4())
         logger.info(f"Indexing document with ID: {document_id}")
 
-        success, message = controller.index_document(chunks, document_id)
+        success, message = await controller.index_document(chunks, document_id)
 
         if not success:
             logger.error(f"Failed to index document: {message}")
