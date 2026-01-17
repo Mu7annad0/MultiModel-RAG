@@ -73,11 +73,9 @@ class AdvancedRAGClient:
         self.settings = settings
         self.client = AsyncOpenAI(api_key=self.settings.OPENAI_API_KEY)
 
-    async def filter_chunks(
-        self, prompt, question: str, chunks: List[str]
-    ) -> List[int]:
+    async def filter_chunks(self, prompt, question: str, chunks: List[str]) -> List[int]:
         formatted_chunks = "\n".join(
-            f"Chunk {i}: text{chunk.text}" for i, chunk in enumerate(chunks)
+            f"Chunk {i}: {chunk.text}" for i, chunk in enumerate(chunks)
         )
 
         filter_prompt = prompt.substitute(
@@ -85,16 +83,32 @@ class AdvancedRAGClient:
             chunks=formatted_chunks,
         )
 
-        answer = await self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": filter_prompt}],
             response_format={"type": "json_object"},
         )
 
-        content = answer.choices[0].message.content
+        content = response.choices[0].message.content
 
         try:
             parsed = json.loads(content)
             return parsed.get("relevant_chunk_indices", [])
+        except json.JSONDecodeError:
+            return []
+
+    async def split_query(self, prompt, query: str) -> list:
+        split_prompt = prompt.substitute(
+            question=query,
+        )
+        response = await self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": split_prompt}],
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        try:
+            parsed = json.loads(content)
+            return parsed.get("decomposed_questions", [])
         except json.JSONDecodeError:
             return []

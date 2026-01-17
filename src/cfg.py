@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int
 
     FILTER: bool
+    SPLIT: bool
 
     STREAMING: bool
 

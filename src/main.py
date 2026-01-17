@@ -1,8 +1,10 @@
 import os
 import uuid
+import json
 import logging
-from fastapi import FastAPI, File, UploadFile, status, Depends
-from fastapi.responses import JSONResponse, FileResponse
+import asyncio
+from fastapi import FastAPI, File, UploadFile, status, Depends, Request
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.cfg import Settings, load_settings
@@ -37,7 +39,7 @@ async def startup_event():
     try:
         settings = load_settings()
         app.vdb_client = QrantVectorDB(db_dir=settings.DB_DIR)
-        app.vdb_client.connect()
+        await app.vdb_client.connect()
         app.embedding_client = EmbeddingClient(settings)
         app.tts_client = TTSClient(settings)
         app.chat_history_manager = ChatHistoryManager()
@@ -79,7 +81,7 @@ async def upload_file(
 
         logger.info("Splitting text into chunks...")
 
-        chunks, no_of_chunks = controller.split_text(
+        chunks, no_of_chunks = await controller.split_text(
             file_path=file_path,
             chunk_size=settings.CHUNK_SIZE,
             chunk_overlap=settings.CHUNK_OVERLAP,
@@ -120,6 +122,80 @@ async def upload_file(
 @app.post("/chat")
 async def chat(chat_request: ChatRequest):
     settings = load_settings()
+
+    async def stream_generator():
+        try:
+            generation_client = GenerationClient(
+                settings=settings,
+                provider=chat_request.provider,
+            )
+            advancedrag_client = AdvancedRAGClient(settings)
+        except Exception as e:
+            logger.error(f"Failed to create generation client: {str(e)}", exc_info=True)
+            yield json.dumps({"error": f"Internal server error: {str(e)}"})
+            return
+
+        history = await app.chat_history_manager.get_history(chat_request.document_id)
+
+        controller = Controller(
+            embedding_client=app.embedding_client,
+            vdb_client=app.vdb_client,
+            generation_client=generation_client,
+            advancedrag_client=advancedrag_client,
+            tts_client=app.tts_client,
+            chat_history_manager=app.chat_history_manager,
+            document_id=chat_request.document_id,
+        )
+
+        full_answer = ""
+        try:
+            async for event_type, data in controller.answer_stream(
+                document_id=chat_request.document_id,
+                query=chat_request.query,
+                chat_history=history,
+                filter=settings.FILTER,
+                split=settings.SPLIT,
+                limit=6,
+            ):
+                if event_type == "text":
+                    full_answer += data
+                    yield json.dumps({"type": "text", "content": data})
+                elif event_type == "chunks":
+                    yield json.dumps({"type": "chunks", "content": data})
+        except Exception as e:
+            logger.error(f"Error in streaming: {str(e)}", exc_info=True)
+            yield json.dumps({"error": f"Streaming error: {str(e)}"})
+            return
+
+        if chat_request.generate_audio and full_answer:
+            try:
+                response_index = app.audio_response_counter
+                app.audio_response_counter += 1
+                audio_file = await controller.generate_audio(
+                    full_answer, response_index
+                )
+                if audio_file:
+                    yield json.dumps({"type": "audio", "content": str(audio_file)})
+            except Exception as e:
+                logger.error(f"Error generating audio: {str(e)}", exc_info=True)
+
+    if settings.STREAMING:
+
+        async def event_generator():
+            async for item in stream_generator():
+                yield f"data: {item}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     try:
         generation_client = GenerationClient(
             settings=settings,
@@ -134,7 +210,7 @@ async def chat(chat_request: ChatRequest):
             content={"error": f"Internal server error: {str(e)}"},
         )
 
-    history = app.chat_history_manager.get_history(chat_request.document_id)
+    history = await app.chat_history_manager.get_history(chat_request.document_id)
 
     controller = Controller(
         embedding_client=app.embedding_client,
@@ -147,14 +223,13 @@ async def chat(chat_request: ChatRequest):
     )
     audio_file = None
 
-    if settings.STREAMING and not chat_request.generate_audio:
-        pass
-
     answer, chunks = await controller.answer(
         document_id=chat_request.document_id,
         query=chat_request.query,
         chat_history=history,
         filter=settings.FILTER,
+        split=settings.SPLIT,
+        limit=6,
     )
     if not answer:
         return JSONResponse(
@@ -166,7 +241,7 @@ async def chat(chat_request: ChatRequest):
         logger.info("Generating audio...")
         response_index = app.audio_response_counter
         app.audio_response_counter += 1
-        audio_file = controller.generate_audio(answer, response_index)
+        audio_file = await controller.generate_audio(answer, response_index)
         if not audio_file:
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -4,6 +4,7 @@ import string
 import random
 import aiofiles
 import logging
+import asyncio
 from typing import List, Literal
 from pydantic import BaseModel
 from fastapi import UploadFile
@@ -36,7 +37,6 @@ class Controller:
         self.tts_client = tts_client
         self.chat_history_manager = chat_history_manager
         self.document_id = document_id
-        setup_logging()
         self.logger = logging.getLogger(__name__)
 
     async def validate(self, file: UploadFile):
@@ -63,8 +63,10 @@ class Controller:
 
         # check no of pages
         try:
-            loader = PyMuPDFLoader(file_path)
-            no_pages = sum(1 for _ in loader.lazy_load())
+            loop = asyncio.get_event_loop()
+            no_pages = await loop.run_in_executor(
+                None, lambda: self._count_pdf_pages(file_path)
+            )
 
             if no_pages > self.settings.FILE_PAGES:
                 os.remove(file_path)
@@ -81,7 +83,18 @@ class Controller:
                 os.remove(file_path)
             return False, f"Error processing PDF: {str(e)}", None
 
-    def split_text(self, file_path: str, chunk_size: int, chunk_overlap: int):
+    def _count_pdf_pages(self, file_path: str) -> int:
+        loader = PyMuPDFLoader(file_path)
+        return sum(1 for _ in loader.lazy_load())
+
+    async def split_text(self, file_path: str, chunk_size: int, chunk_overlap: int):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self._split_text_blocking(file_path, chunk_size, chunk_overlap),
+        )
+
+    def _split_text_blocking(self, file_path: str, chunk_size: int, chunk_overlap: int):
         loader = PyMuPDFLoader(file_path)
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size, chunk_overlap=chunk_overlap
@@ -126,29 +139,83 @@ class Controller:
         except Exception as e:
             return False, f"Error indexing document: {str(e)}"
 
-    async def search(self, document_id: str, query: str, limit: int = 5, filter: bool = False):
+    async def search(
+        self,
+        document_id: str,
+        query: str,
+        limit: int = 5,
+        filter: bool = False,
+        split: bool = False,
+    ):
         collection_name = f"document_{document_id}"
         try:
-            embedding_result = await self.embedding_client.embed(text=query)
-            if not embedding_result or len(embedding_result) == 0:
-                self.logger.error("Failed to generate embedding for query")
-                return []
-            vectors = embedding_result[0]
-            results = await self.vdb_client.search(
-                collection_name=collection_name, query_vector=vectors, limit=limit
-            )
+            if split:
+                self.logger.info("Splitting query...")
+                sub_questions = await self.advancedrag_client.split_query(
+                    prompt=prompt.SPLITTER_PROMPT, query=query
+                )
+                if not sub_questions:
+                    sub_questions = [query]
+
+                all_results = []
+                seen_texts = set()
+
+                self.logger.info("The query is split into {} sub-questions....".format(len(sub_questions)))
+                
+                for sub_query in sub_questions:
+                    embedding_result = await self.embedding_client.embed(text=sub_query)
+                    if not embedding_result or len(embedding_result) == 0:
+                        self.logger.warning(
+                            f"Failed to generate embedding for sub-query: {sub_query}"
+                        )
+                        continue
+
+                    vectors = embedding_result[0]
+                    sub_results = await self.vdb_client.search(
+                        collection_name=collection_name,
+                        query_vector=vectors,
+                        limit=limit,
+                    )
+
+                    for result in sub_results:
+                        if result.text not in seen_texts:
+                            all_results.append(result)
+                            seen_texts.add(result.text)
+
+                all_results.sort(key=lambda x: x.score, reverse=True)
+                results = all_results[:limit]
+                self.logger.info("Search results: length = {}".format(len(results)))
+            else:
+                embedding_result = await self.embedding_client.embed(text=query)
+                if not embedding_result or len(embedding_result) == 0:
+                    self.logger.error("Failed to generate embedding for query")
+                    return []
+                vectors = embedding_result[0]
+
+                results = await self.vdb_client.search(
+                    collection_name=collection_name, query_vector=vectors, limit=limit
+                )
             if filter:
                 indices = await self.advancedrag_client.filter_chunks(
                     prompt=prompt.FILTER_PROMPT, question=query, chunks=results
                 )
                 results = [results[i] for i in indices]
+                self.logger.info("Filtered results: length = {}".format(len(results)))
             return results
         except Exception as e:
             self.logger.error(f"Error searching for document: {str(e)}")
             return []
 
-    async def answer(self, document_id: str, query: str, chat_history: List = None, limit: int = 5, filter: bool = False):
-        retrieved_results = await self.search(document_id, query, limit, filter)
+    async def answer(
+        self,
+        document_id: str,
+        query: str,
+        chat_history: List = None,
+        limit: int = 5,
+        filter: bool = False,
+        split: bool = False,
+    ):
+        retrieved_results = await self.search(document_id, query, limit, filter, split)
         if not retrieved_results:
             return None, []
 
@@ -180,7 +247,7 @@ class Controller:
         )
 
         if self.chat_history_manager:
-            self.chat_history_manager.save_history(document_id, chat_history)
+            await self.chat_history_manager.save_history(document_id, chat_history)
 
         chunks = [
             f'In Page. {doc.metadata["page"]}:  "{doc.text}"'
@@ -189,8 +256,10 @@ class Controller:
 
         return answer, chunks
 
-    async def answer_stream(self, document_id: str, query: str, chat_history: List = None, limit: int = 5):
-        retrieved_results = await self.search(document_id, query, limit)
+    async def answer_stream(
+        self, document_id: str, query: str, chat_history: List = None, limit: int = 5, filter: bool = False, split: bool = False
+    ):
+        retrieved_results = await self.search(document_id, query, limit, filter, split)
         if not retrieved_results:
             yield ("text", "No relevant documents found.")
             yield ("chunks", [])
@@ -212,7 +281,7 @@ class Controller:
         final_prompt = f"{documents_prompt}\n\n{footer_text}"
 
         full_answer = ""
-        async for chunk in self.generation_client.answer_stream(
+        async for chunk in await self.generation_client.answer_stream(
             prompt=final_prompt, chat_history=chat_history
         ):
             full_answer += chunk
@@ -226,7 +295,7 @@ class Controller:
         )
 
         if self.chat_history_manager:
-            self.chat_history_manager.save_history(document_id, chat_history)
+            await self.chat_history_manager.save_history(document_id, chat_history)
 
         chunks = [
             f'In Page.{doc.metadata["page"]}:  "{doc.text}"'
@@ -234,9 +303,9 @@ class Controller:
         ]
         yield ("chunks", chunks)
 
-    def generate_audio(self, query: str, response_index: int):
+    async def generate_audio(self, query: str, response_index: int):
         if self.tts_client:
-            return self.tts_client.generate(query, response_index)
+            return await self.tts_client.generate(query, response_index)
         return None
 
     def _change_file_name(self, current_name: str) -> str:
