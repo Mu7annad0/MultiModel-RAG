@@ -1,4 +1,6 @@
+import json
 from typing import Optional, List, Dict, Union
+from openai import AsyncOpenAI
 
 from .llm_providers import GeminiProvider, OpenAIProvider, DeepSeekProvider
 
@@ -43,3 +45,35 @@ class GenerationClient:
     @staticmethod
     def construct_prompt(query: str, role: str) -> Dict[str, str]:
         return {"role": role, "content": query}
+
+
+class AdvancedRAGClient:
+    def __init__(self, settings):
+        self.settings = settings
+        self.client = AsyncOpenAI(api_key=self.settings.OPENAI_API_KEY)
+
+    async def filter_chunks(self, prompt, question: str, chunks: List[str]) -> List[int]:
+        formatted_chunks = "\n".join(
+            f"Chunk {i}: text{chunk.text}" for i, chunk in enumerate(chunks)
+        )
+
+        filter_prompt = prompt.substitute(
+            question=question,
+            chunks=formatted_chunks,
+        )
+
+        answer = await self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "user", "content": filter_prompt}
+            ],
+            response_format={"type": "json_object"}
+        )
+
+        content = answer.choices[0].message.content
+
+        try:
+            parsed = json.loads(content)
+            return parsed.get("relevant_chunk_indices", [])
+        except json.JSONDecodeError:
+            return []
