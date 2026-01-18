@@ -265,6 +265,7 @@ class Controller:
             yield ("chunks", [])
             return
 
+        self.logger.info("Retrieved {} documents for document_id: {}".format(len(retrieved_results), document_id))
         if not chat_history:
             system_content = prompt.SYSTEM_PROMPT.substitute()
             chat_history = [
@@ -314,10 +315,3 @@ class Controller:
             random.choices(string.ascii_letters + string.digits, k=10)
         )
         return f"{random_string}_{cleaned_name}"
-
-
-class ChatRequest(BaseModel):
-    document_id: str
-    query: str
-    provider: Literal["openai", "gemini", "deepseek"]
-    generate_audio: bool

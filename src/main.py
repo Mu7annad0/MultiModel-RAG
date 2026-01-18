@@ -2,13 +2,12 @@ import os
 import uuid
 import json
 import logging
-import asyncio
-from fastapi import FastAPI, File, UploadFile, status, Depends, Request
+from fastapi import FastAPI, File, UploadFile, status, Depends
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.cfg import Settings, load_settings
-from src.controller import Controller, ChatRequest
+from src.cfg import ChatRequest,Settings, load_settings
+from src.controller import Controller
 from src.logging import setup_logging
 from src.clients import (
     EmbeddingClient,

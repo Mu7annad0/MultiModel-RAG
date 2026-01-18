@@ -1,5 +1,13 @@
 from typing import List, Literal
 from pydantic_settings import BaseSettings
+from pydantic import BaseModel
+
+
+class ChatRequest(BaseModel):
+    document_id: str
+    query: str
+    provider: Literal["openai", "gemini", "deepseek"]
+    generate_audio: bool
 
 
 class Settings(BaseSettings):
