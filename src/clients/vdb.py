@@ -15,12 +15,11 @@ class QrantVectorDB:
     def __init__(self, db_dir: str):
         self.db_dir = db_dir
         self.client: Optional[AsyncQdrantClient] = None
-        self.logger = logging.getLogger("uvicorn")
+        self.logger = logging.getLogger(__name__)
 
-    def connect(self):
+    async def connect(self):
         try:
             self.client = AsyncQdrantClient(path=self.db_dir)
-            self.logger.info(f"Connected to Async Qdrant at {self.db_dir}")
         except Exception as e:
             self.logger.error(f"Failed to connect to Qdrant: {str(e)}")
             raise
@@ -66,7 +65,9 @@ class QrantVectorDB:
             self.logger.error(f"Error deleting collection {collection_name}: {str(e)}")
             return False
 
-    async def create_collection(self, collection_name: str, vector_size: int, do_reset: bool = False) -> bool:
+    async def create_collection(
+        self, collection_name: str, vector_size: int, do_reset: bool = False
+    ) -> bool:
         try:
             self.logger.info(
                 f"Creating collection: {collection_name} with vector size: {vector_size}"
@@ -157,7 +158,9 @@ class QrantVectorDB:
             self.logger.error(f"Error in insert: {str(e)}", exc_info=True)
             return False
 
-    async def search(self, collection_name: str, query_vector: list, limit: int = 5) -> List[RetrievedDocument]:
+    async def search(
+        self, collection_name: str, query_vector: list, limit: int = 5
+    ) -> List[RetrievedDocument]:
         if not await self.is_collection_exists(collection_name):
             self.logger.error(f"Collection {collection_name} not found")
             return []
