@@ -84,7 +84,8 @@ class AdvancedRAGClient:
         )
 
         response = await self.client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5-mini",
+            reasoning_effort="low",
             messages=[{"role": "user", "content": filter_prompt}],
             response_format={"type": "json_object"},
         )
