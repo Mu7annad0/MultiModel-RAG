@@ -5,7 +5,8 @@ from openai import AsyncOpenAI
 class TTSClient:
     def __init__(self, settings) -> None:
         self.settings = settings
-        self.voices_dir = Path(__file__).parent.parent.parent / "voices"
+        voices_dir = Path(__file__).parent.parent.parent.parent / "voices"
+        self.voices_dir = voices_dir
         self.voices_dir.mkdir(parents=True, exist_ok=True)
         self.client = AsyncOpenAI(api_key=self.settings.OPENAI_API_KEY)
 

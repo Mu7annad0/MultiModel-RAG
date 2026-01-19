@@ -7,10 +7,10 @@ from fastapi import FastAPI, File, UploadFile, status, Depends
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.cfg import ChatRequest, Settings, load_settings
-from src.controller import Controller
-from src.logging import setup_logging
-from src.clients import (
+from backend.cfg import ChatRequest, Settings, load_settings
+from backend.controller import Controller
+from backend.app_logging import setup_logging
+from backend.clients import (
     EmbeddingClient,
     QrantVectorDB,
     GenerationClient,
@@ -18,7 +18,7 @@ from src.clients import (
     AdvancedRAGClient,
     EvaluationClient,
 )
-from src.chat_history import ChatHistoryManager
+from backend.chat_history import ChatHistoryManager
 
 
 setup_logging()
@@ -62,7 +62,9 @@ async def print_info(app_settings: Settings = Depends(load_settings)):
 
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...), settings: Settings = Depends(load_settings)):
+async def upload_file(
+    file: UploadFile = File(...), settings: Settings = Depends(load_settings)
+):
     try:
         logger.info(f"Received file upload request: {file.filename}")
 
@@ -154,7 +156,9 @@ async def chat(chat_request: ChatRequest):
         return await handle_non_streaming_response(chat_request, controller, history)
 
 
-async def handle_streaming_response(chat_request: ChatRequest, controller: Controller, history):
+async def handle_streaming_response(
+    chat_request: ChatRequest, controller: Controller, history
+):
     async def stream_generator():
         full_answer = ""
         retrieved_results = None
@@ -184,7 +188,9 @@ async def handle_streaming_response(chat_request: ChatRequest, controller: Contr
                 yield json.dumps({"type": "audio", "content": str(audio_file)})
 
         asyncio.create_task(
-            run_evaluation(controller, chat_request.query, full_answer, retrieved_results)
+            run_evaluation(
+                controller, chat_request.query, full_answer, retrieved_results
+            )
         )
 
     async def event_generator():
@@ -203,7 +209,9 @@ async def handle_streaming_response(chat_request: ChatRequest, controller: Contr
     )
 
 
-async def handle_non_streaming_response(chat_request: ChatRequest, controller: Controller, history):
+async def handle_non_streaming_response(
+    chat_request: ChatRequest, controller: Controller, history
+):
     answer, chunks = await controller.answer(
         document_id=chat_request.document_id,
         query=chat_request.query,
@@ -249,7 +257,9 @@ async def generate_audio_response(controller: Controller, text: str):
         return None
 
 
-async def run_evaluation(controller: Controller, query: str, answer: str, retrieved_results):
+async def run_evaluation(
+    controller: Controller, query: str, answer: str, retrieved_results
+):
     try:
         answer_relevancy, faithfulness = await controller.evaluate_answer(
             query, answer, retrieved_results
@@ -265,13 +275,17 @@ async def run_evaluation(controller: Controller, query: str, answer: str, retrie
             )
         )
     except Exception as e:
-        logger.error(f"Error in background evaluation: {str(e)}", exc_info=True)
+        error_msg = str(e)
+        if "max_tokens" in error_msg or "IncompleteOutputException" in error_msg:
+            logger.warning("Evaluation skipped due to response length limit")
+        else:
+            logger.error(f"Error in background evaluation: {error_msg}")
 
 
 @app.get("/audio/{filename}")
 async def get_audio(filename: str):
     """Serve audio files from the voices directory."""
-    base_dir = os.path.dirname(os.path.dirname(__file__))
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     voices_dir = os.path.join(base_dir, "voices")
     file_path = os.path.join(voices_dir, filename)
 

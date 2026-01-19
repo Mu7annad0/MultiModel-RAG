@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 
 class ChatHistoryManager:
     def __init__(self, file_path: Optional[str] = None):
-        base_dir = os.path.dirname(os.path.dirname(__file__))
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         self.histories_dir = os.path.join(base_dir, "data", "chat_histories")
         os.makedirs(self.histories_dir, exist_ok=True)
 

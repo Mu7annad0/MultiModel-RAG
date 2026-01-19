@@ -10,8 +10,8 @@ from fastapi import UploadFile
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-import src.prompts as prompt
-from src.cfg import load_settings
+import backend.prompts as prompt
+from backend.cfg import load_settings
 
 
 class Controller:
@@ -27,8 +27,8 @@ class Controller:
         eval_client=None,
     ):
         self.settings = load_settings()
-        self.base_dir = os.path.dirname(os.path.dirname(__file__))
-        self.files_dir = os.path.join(self.base_dir, "assets/files")
+        self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        self.files_dir = os.path.join(self.base_dir, "assets", "files")
         os.makedirs(self.files_dir, exist_ok=True)
         self.embedding_client = embedding_client
         self.vdb_client = vdb_client
@@ -161,8 +161,12 @@ class Controller:
                 all_results = []
                 seen_texts = set()
 
-                self.logger.info("The query is split into {} sub-questions....".format(len(sub_questions)))
-                
+                self.logger.info(
+                    "The query is split into {} sub-questions....".format(
+                        len(sub_questions)
+                    )
+                )
+
                 for sub_query in sub_questions:
                     embedding_result = await self.embedding_client.embed(text=sub_query)
                     if not embedding_result or len(embedding_result) == 0:

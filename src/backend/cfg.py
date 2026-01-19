@@ -1,6 +1,7 @@
 from typing import List, Literal
-from pydantic_settings import BaseSettings
-from pydantic import BaseModel
+import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
@@ -8,6 +9,11 @@ class ChatRequest(BaseModel):
     query: str
     provider: Literal["openai", "gemini", "deepseek"]
     generate_audio: bool
+
+
+def get_default_db_dir():
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    return os.path.join(base_dir, "assets", "database", "qdrant_db")
 
 
 class Settings(BaseSettings):
@@ -41,10 +47,13 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int
     CHUNK_SIZE: int
 
-    DB_DIR: str
+    DB_DIR: str = Field(default_factory=get_default_db_dir)
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        env_file=os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env"
+        )
+    )
 
 
 def load_settings():
