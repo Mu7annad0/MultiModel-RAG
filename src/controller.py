@@ -5,8 +5,7 @@ import random
 import aiofiles
 import logging
 import asyncio
-from typing import List, Literal
-from pydantic import BaseModel
+from typing import List
 from fastapi import UploadFile
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -25,6 +24,7 @@ class Controller:
         tts_client=None,
         chat_history_manager=None,
         document_id=None,
+        eval_client=None,
     ):
         self.settings = load_settings()
         self.base_dir = os.path.dirname(os.path.dirname(__file__))
@@ -34,6 +34,7 @@ class Controller:
         self.vdb_client = vdb_client
         self.generation_client = generation_client
         self.advancedrag_client = advancedrag_client
+        self.eval_client = eval_client
         self.tts_client = tts_client
         self.chat_history_manager = chat_history_manager
         self.document_id = document_id
@@ -257,7 +258,13 @@ class Controller:
         return answer, chunks
 
     async def answer_stream(
-        self, document_id: str, query: str, chat_history: List = None, limit: int = 5, filter: bool = False, split: bool = False
+        self,
+        document_id: str,
+        query: str,
+        chat_history: List = None,
+        limit: int = 5,
+        filter: bool = False,
+        split: bool = False,
     ):
         retrieved_results = await self.search(document_id, query, limit, filter, split)
         if not retrieved_results:
@@ -265,7 +272,11 @@ class Controller:
             yield ("chunks", [])
             return
 
-        self.logger.info("Retrieved {} documents for document_id: {}".format(len(retrieved_results), document_id))
+        self.logger.info(
+            "Retrieved {} documents for document_id: {}".format(
+                len(retrieved_results), document_id
+            )
+        )
         if not chat_history:
             system_content = prompt.SYSTEM_PROMPT.substitute()
             chat_history = [
@@ -303,6 +314,14 @@ class Controller:
             for doc in retrieved_results
         ]
         yield ("chunks", chunks)
+
+    async def evaluate_answer(self, query: str, answer: str, retrieved_results):
+        if self.eval_client:
+            answer_relevancy, faithfulness = await self.eval_client.evaluate(
+                query, answer, retrieved_results
+            )
+            return answer_relevancy, faithfulness
+        return None, None
 
     async def generate_audio(self, query: str, response_index: int):
         if self.tts_client:

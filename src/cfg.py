@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     GEMINI_EMBEDDING_MODEL: str
     COHERE_EMBEDDING_MODEL: str
 
+    EVALUATION_MODEL: str
+
     OPENAI_MODEL_ID: str
     GEMINI_MODEL_ID: str
     DEEPSEEK_MODEL_ID: str
