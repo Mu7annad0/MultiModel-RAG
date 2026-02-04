@@ -42,7 +42,7 @@ FOOTER_PROMPT = Template(
 
 
 FILTER_PROMPT = Template(
-"""
+    """
 You are a High-Precision Evaluator for a Retrieval-Augmented Generation (RAG) system. 
 Your goal is to filter out noise while retaining all chunks necessary to build a complete, nuanced, and contextually accurate answer.
 
@@ -83,7 +83,7 @@ Answer:
 
 
 SPLITTER_PROMPT = Template(
-"""
+    """
 You are a helpful assistant that prepares queries that will be sent to a search component.
 Sometimes, these queries are very complex. Your job is to simplify complex queries into multiple queries that can be answered in isolation to eachother.
 
@@ -117,4 +117,39 @@ Output:
 """
 )
 
-__all__ = ["SYSTEM_PROMPT", "DOCUMENT_PROMPT", "FOOTER_PROMPT", "FILTER_PROMPT", "SPLITTER_PROMPT"]
+
+CHAT_TITLE_PROMPT = Template(
+    """
+You are a helpful assistant that generates concise, descriptive chat titles based on the user's first message.
+
+### Instructions:
+1. **Analyze:** Understand the main topic or intent of the user's message.
+2. **Conciseness:** Generate a title that is 4-8 words long.
+3. **Descriptiveness:** The title should clearly indicate what the chat is about.
+4. **No Quotes:** Do not include quotation marks in the title.
+5. **Format:** Output ONLY the title text, nothing else.
+
+### Examples:
+Message: "Can you explain how neural networks work in machine learning?"
+Title: Neural Network Basics
+
+Message: "What are the key differences between Python and JavaScript?"
+Title: Python vs JavaScript Comparison
+
+Message: "Help me write a SQL query to join three tables"
+Title: SQL Join Query Help
+
+### Task:
+Message: $message
+Title:
+"""
+)
+
+__all__ = [
+    "SYSTEM_PROMPT",
+    "DOCUMENT_PROMPT",
+    "FOOTER_PROMPT",
+    "FILTER_PROMPT",
+    "SPLITTER_PROMPT",
+    "CHAT_TITLE_PROMPT",
+]
