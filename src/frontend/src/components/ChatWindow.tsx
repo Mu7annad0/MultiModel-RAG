@@ -12,6 +12,8 @@ interface ChatWindowProps {
   generateAudio?: boolean;
   onModelChange?: (model: ModelProvider) => void;
   onAudioChange?: (enabled: boolean) => void;
+  onUploadClick: () => void;
+  fileStatus: 'none' | 'uploading' | 'indexing' | 'ready' | 'error';
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -23,6 +25,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   generateAudio = false,
   onModelChange = () => {},
   onAudioChange = () => {},
+  onUploadClick,
+  fileStatus,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -53,11 +57,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               </div>
               <div>
                 <p className="text-base font-medium text-foreground">
-                  {disabled ? 'Upload a PDF to start chatting' : 'Start a conversation'}
+                  Start a conversation
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {disabled 
-                    ? 'Your document will be indexed and ready for questions' 
+                    ? 'Upload a PDF to start chatting' 
                     : 'Ask questions about your uploaded PDF'}
                 </p>
               </div>
@@ -96,6 +100,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         generateAudio={generateAudio}
         onModelChange={onModelChange}
         onAudioChange={onAudioChange}
+        onUploadClick={onUploadClick}
+        fileStatus={fileStatus}
       />
     </div>
   );

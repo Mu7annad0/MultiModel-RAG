@@ -37,7 +37,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       <div className={`
         max-w-[75%] rounded-xl px-3 py-2
         ${isUser 
-          ? 'bg-primary text-white rounded-tr-sm' 
+          ? 'bg-primary text-primary-foreground dark:text-black rounded-tr-sm' 
           : 'bg-card text-card-foreground border border-border rounded-tl-sm'
         }
         shadow-sm
@@ -50,7 +50,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         ) : (
           <>
             {message.content ? (
-              <div className={`text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none ${isUser ? 'text-white' : ''}`}>
+              <div className={`text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none ${isUser ? 'text-primary-foreground dark:text-black' : ''}`}>
                 <ReactMarkdown>{message.content}</ReactMarkdown>
               </div>
             ) : showAudioPlaceholder ? (

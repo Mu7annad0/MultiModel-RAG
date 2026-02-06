@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, ChevronDown, Volume2, Check } from 'lucide-react';
+import { Send, Loader2, ChevronDown, Volume2, Check, Paperclip } from 'lucide-react';
 import { ModelProvider } from '../types';
 import openaiIcon from '../../icons/openai_icon.png';
 import geminiIcon from '../../icons/gemini_icon.png';
@@ -13,6 +13,8 @@ interface ChatInputProps {
   generateAudio: boolean;
   onModelChange: (model: ModelProvider) => void;
   onAudioChange: (enabled: boolean) => void;
+  onUploadClick: () => void;
+  fileStatus: 'none' | 'uploading' | 'indexing' | 'ready' | 'error';
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -23,11 +25,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   generateAudio,
   onModelChange,
   onAudioChange,
+  onUploadClick,
+  fileStatus,
 }) => {
   const [input, setInput] = useState('');
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [inputHeight, setInputHeight] = useState('32px');
-  
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -73,7 +77,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setInput(value);
-    
+
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
       inputRef.current.style.height = `${inputRef.current.scrollHeight}px`;
@@ -91,9 +95,39 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const isDisabled = disabled || isLoading;
   const hasInput = input.trim().length > 0;
 
+  const getFileStatusColor = () => {
+    switch (fileStatus) {
+      case 'ready':
+        return 'text-green-500';
+      case 'error':
+        return 'text-red-500';
+      case 'uploading':
+      case 'indexing':
+        return 'text-yellow-500';
+      default:
+        return 'text-muted-foreground';
+    }
+  };
+
   return (
     <div className="bg-card border-t border-border">
       <form onSubmit={handleSubmit} className="flex items-end px-3 py-2">
+        {/* File Upload Icon */}
+        <button
+          type="button"
+          onClick={onUploadClick}
+          disabled={isLoading}
+          className={`
+            flex items-center justify-center p-2 mr-2 rounded-full
+            transition-all duration-200
+            ${getFileStatusColor()}
+            ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-secondary cursor-pointer'}
+          `}
+          title="Upload PDF"
+        >
+          <Paperclip className="w-4 h-4" />
+        </button>
+
         <textarea
           ref={inputRef}
           value={input}
@@ -102,7 +136,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           placeholder={disabled ? 'Upload a PDF first...' : 'Ask about your document...'}
           disabled={isDisabled}
           rows={1}
-          className="flex-1 px-3 py-1.5 bg-transparent border-none resize-none 
+          className="flex-1 px-3 py-1.5 bg-transparent border-none resize-none
             focus:outline-none focus:ring-0
             disabled:opacity-50 disabled:cursor-not-allowed
             placeholder:text-muted-foreground text-sm overflow-hidden"
@@ -121,8 +155,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               className={`
                 flex items-center gap-1.5 px-3 py-2 border border-border rounded-full
                 transition-all duration-200
-                ${isDisabled 
-                  ? 'text-muted-foreground cursor-not-allowed opacity-50' 
+                ${isDisabled
+                  ? 'text-muted-foreground cursor-not-allowed opacity-50'
                   : 'text-foreground hover:border-primary hover:text-primary cursor-pointer'
                 }
               `}
@@ -171,8 +205,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             className={`
               flex items-center gap-1.5 px-3 py-2 border border-border rounded-full
               transition-all duration-200
-              ${generateAudio 
-                ? 'bg-primary text-white border-primary' 
+              ${generateAudio
+                ? 'bg-primary text-white border-primary'
                 : 'text-muted-foreground hover:border-primary hover:text-primary'
               }
               ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
@@ -190,7 +224,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               flex items-center justify-center p-2 border border-border rounded-full
               transition-all duration-200
               ${hasInput && !isDisabled
-                ? 'bg-black dark:bg-white text-white dark:text-black border-border hover:border-primary cursor-pointer' 
+                ? 'bg-black dark:bg-white text-white dark:text-black border-border hover:border-primary cursor-pointer'
                 : 'text-muted-foreground cursor-not-allowed'
               }
             `}

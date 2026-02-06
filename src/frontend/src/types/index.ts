@@ -1,6 +1,8 @@
 export interface UploadResponse {
   message: string;
   document_id: string;
+  filename: string;
+  chat_id: number;
 }
 
 export interface ChatRequest {
@@ -35,4 +37,34 @@ export interface FileUploadState {
   error: string | null;
   documentId: string | null;
   savedFileSize: number | null;
+  status: 'idle' | 'uploading' | 'indexing' | 'ready' | 'error';
+}
+
+export interface Chat {
+  id: number;
+  chat_name: string;
+  created_at: string;
+  updated_at: string;
+  document_id: string | null;
+  filename?: string | null;
+}
+
+export interface NewChatResponse {
+  chat_id: number;
+  chat_name: string;
+  message: string;
+}
+
+export interface ChatListResponse {
+  chats: Chat[];
+}
+
+export interface ChatMessagesResponse {
+  chat: Chat;
+  messages: Array<{
+    id: number;
+    role: string;
+    content: string;
+    created_at: string;
+  }>;
 }
