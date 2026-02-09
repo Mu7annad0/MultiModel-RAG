@@ -113,3 +113,26 @@ class AdvancedRAGClient:
             return parsed.get("decomposed_questions", [])
         except json.JSONDecodeError:
             return []
+
+    async def generate_chat_title(self, prompt, message: str) -> str:
+        title_prompt = prompt.substitute(message=message)
+
+        try:
+            response = await self.client.chat.completions.create(
+                    model="gpt-5-mini",
+                    messages=[{"role": "user", "content": title_prompt}],
+                )
+            title = response.choices[0].message.content.strip()
+            return title if title else self._generate_fallback_title(message)
+
+        except Exception as e:
+            print(f"Error generating title: {e}")
+            return self._generate_fallback_title(message)
+
+    def _generate_fallback_title(self, message: str) -> str:
+        words = message.split()
+        if len(words) <= 5:
+            return message[:50] if len(message) <= 50 else message[:47] + "..."
+        else:
+            title = " ".join(words[:5])
+            return title[:50] if len(title) <= 50 else title[:47] + "..."
