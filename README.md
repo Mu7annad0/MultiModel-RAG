@@ -15,7 +15,9 @@ A powerful Retrieval-Augmented Generation (RAG) system featuring intelligent que
 - **Source Citations**: Display exact text chunks used to generate each answer for full transparency
 - **Text-to-Speech Audio**: Convert AI responses to natural-sounding audio using OpenAI TTS
 - **Streaming Responses**: Real-time streaming of AI responses for improved UX
-- **Chat History Persistence**: Maintains conversation context across sessions
+- **Multi-Chat Management**: Create, delete, and switch between multiple chat sessions
+- **Chat History Persistence**: Stores conversation history and chat metadata in PostgreSQL database
+- **Auto-Generated Chat Titles**: Automatically generates descriptive titles based on the first message
 - **Modern UI**: Responsive React interface with dark mode, glassmorphism effects, and smooth animations
 <br><br>
 ![Demo](images/demo.png)
@@ -26,6 +28,7 @@ A powerful Retrieval-Augmented Generation (RAG) system featuring intelligent que
 - **FastAPI**: High-performance async API framework for Python
 - **LangChain**: Document processing and text splitting
 - **Qdrant**: Vector database for similarity search and storage
+- **PostgreSQL**: Database for persistent chat history and metadata storage
 - **Ragas**: RAG evaluation framework for answer relevancy and faithfulness metrics
 - **OpenAI SDK**: GPT models and DeepSeek integration (OpenAI-compatible)
 - **Google GenAI**: Gemini model integration
@@ -189,13 +192,18 @@ CHUNK_OVERLAP=200
 
 # Database
 DB_DIR=../assets/database/qdrant_db
+
+# PostgreSQL Database (for chat history persistence)
+DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/mmrag
 ```
 
 ## Usage Guide
 
 1. **Start the Application**: Run both backend and frontend servers
-2. **Upload a Document**: Drag and drop a PDF (under or equal to 100 pages) onto the upload zone
-3. **Select Model**: Choose your preferred LLM from the dropdown selector
-4. **Enable Audio**: Toggle the audio button to hear responses read aloud
-5. **Ask Questions**: Type queries about the document content in the chat interface
-6. **View Sources**: Expand the source chunks below each answer to see citations
+2. **Create a New Chat**: Click "New Chat" button in the sidebar
+3. **Upload a Document**: Click the paperclip icon in the chat input to upload a PDF (max 100 pages)
+4. **Select Model**: Choose your preferred LLM from the dropdown selector
+5. **Enable Audio**: Toggle the audio button to hear responses read aloud
+6. **Ask Questions**: Type queries about the document content in the chat interface
+7. **View Sources**: Expand the source chunks below each answer to see citations
+8. **Manage Chats**: Switch between chats from the sidebar, or delete unwanted chats by hovering and clicking the trash icon
