@@ -22,7 +22,11 @@ dependencies = [
     "google-genai==1.57.0",
     "openai[voice_helpers]",
     "ragas==0.4.3",
-    "PyMuPDF==1.26.7"
+    "PyMuPDF==1.26.7",
+    "SQLAlchemy==2.0.46",
+    "asyncpg==0.31.0",
+    "greenlet==3.3.1",
+    "alembic==1.18.3"
 ]
 
 [tool.setuptools.packages.find]
