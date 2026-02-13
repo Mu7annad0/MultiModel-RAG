@@ -1,7 +1,7 @@
 import json
 import logging
 from typing import Optional, List, Dict, Union
-from openai import AsyncOpenAI
+from langchain_openai import ChatOpenAI
 
 from .llm_providers import GeminiProvider, OpenAIProvider, DeepSeekProvider
 
@@ -24,25 +24,37 @@ class GenerationClient:
         provider = provider.lower()
 
         if provider == "openai":
-            model_id = model_id or getattr(
-                self.settings, "OPENAI_MODEL_ID", "gpt-5-mini"
+            model_id_val: str = (
+                model_id
+                or getattr(self.settings, "OPENAI_MODEL_ID", None)
+                or "gpt-5-mini"
             )
-            api_key = api_key or getattr(self.settings, "OPENAI_API_KEY", None)
-            self.provider = OpenAIProvider(api_key=api_key, model=model_id)
+            api_key_str = api_key or getattr(self.settings, "OPENAI_API_KEY", None)
+            if api_key_str is None:
+                raise ValueError("OpenAI API key is required")
+            self.provider = OpenAIProvider(api_key=api_key_str, model=model_id_val)
 
         elif provider == "gemini":
-            model_id = model_id or getattr(
-                self.settings, "GEMINI_MODEL_ID", "gemini-3-flash-preview"
+            model_id_val: str = (
+                model_id
+                or getattr(self.settings, "GEMINI_MODEL_ID", None)
+                or "gemini-3-flash-preview"
             )
-            api_key = api_key or getattr(self.settings, "GEMINI_API_KEY", None)
-            self.provider = GeminiProvider(api_key=api_key, model=model_id)
+            api_key_str = api_key or getattr(self.settings, "GEMINI_API_KEY", None)
+            if api_key_str is None:
+                raise ValueError("Gemini API key is required")
+            self.provider = GeminiProvider(api_key=api_key_str, model=model_id_val)
 
         elif provider == "deepseek":
-            model_id = model_id or getattr(
-                self.settings, "DEEPSEEK_MODEL_ID", "deepseek/deepseek-r1-0528:free"
+            model_id_val: str = (
+                model_id
+                or getattr(self.settings, "DEEPSEEK_MODEL_ID", None)
+                or "deepseek/deepseek-r1-0528:free"
             )
-            api_key = api_key or getattr(self.settings, "DEEPSEEK_API_KEY", None)
-            self.provider = DeepSeekProvider(api_key=api_key, model=model_id)
+            api_key_str = api_key or getattr(self.settings, "DEEPSEEK_API_KEY", None)
+            if api_key_str is None:
+                raise ValueError("DeepSeek API key is required")
+            self.provider = DeepSeekProvider(api_key=api_key_str, model=model_id_val)
 
         else:
             raise ValueError(f"Unsupported provider: {provider}")
@@ -71,11 +83,16 @@ class GenerationClient:
 class AdvancedRAGClient:
     def __init__(self, settings):
         self.settings = settings
-        self.client = AsyncOpenAI(api_key=self.settings.OPENAI_API_KEY)
+        api_key = getattr(settings, "OPENAI_API_KEY", None)
+        if api_key is None:
+            raise ValueError("OpenAI API key is required for AdvancedRAGClient")
+        self.client = ChatOpenAI(api_key=api_key, model="gpt-5-mini")
 
-    async def filter_chunks(self, prompt, question: str, chunks: List[str]) -> List[int]:
+    async def filter_chunks(
+        self, prompt, question: str, chunks: List[str]
+    ) -> List[int]:
         formatted_chunks = "\n".join(
-            f"Chunk {i}: {chunk.text}" for i, chunk in enumerate(chunks)
+            f"Chunk {i}: {chunk}" for i, chunk in enumerate(chunks)
         )
 
         filter_prompt = prompt.substitute(
@@ -83,46 +100,47 @@ class AdvancedRAGClient:
             chunks=formatted_chunks,
         )
 
-        response = await self.client.chat.completions.create(
-            model="gpt-5-mini",
-            reasoning_effort="low",
-            messages=[{"role": "user", "content": filter_prompt}],
-            response_format={"type": "json_object"},
+        response = await self.client.ainvoke(
+            [{"role": "user", "content": filter_prompt}]
         )
 
-        content = response.choices[0].message.content
+        content = response.content
+        if not isinstance(content, str):
+            content = str(content) if content else ""
 
         try:
             parsed = json.loads(content)
             return parsed.get("relevant_chunk_indices", [])
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             return []
 
     async def split_query(self, prompt, query: str) -> list:
         split_prompt = prompt.substitute(
             question=query,
         )
-        response = await self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": split_prompt}],
-            response_format={"type": "json_object"},
+        response = await self.client.ainvoke(
+            [{"role": "user", "content": split_prompt}]
         )
-        content = response.choices[0].message.content
+        content = response.content
+        if not isinstance(content, str):
+            content = str(content) if content else ""
         try:
             parsed = json.loads(content)
             return parsed.get("decomposed_questions", [])
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             return []
 
     async def generate_chat_title(self, prompt, message: str) -> str:
         title_prompt = prompt.substitute(message=message)
 
         try:
-            response = await self.client.chat.completions.create(
-                    model="gpt-5-mini",
-                    messages=[{"role": "user", "content": title_prompt}],
-                )
-            title = response.choices[0].message.content.strip()
+            response = await self.client.ainvoke(
+                [{"role": "user", "content": title_prompt}]
+            )
+            content = response.content
+            if not isinstance(content, str):
+                content = str(content) if content else ""
+            title = content.strip()
             return title if title else self._generate_fallback_title(message)
 
         except Exception as e:
