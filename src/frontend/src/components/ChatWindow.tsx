@@ -73,7 +73,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               <MessageBubble
                 key={message.id}
                 message={message}
-                isLoading={isLoading && message.role === 'assistant' && !message.content && !message.audio_file && !message.streaming_complete}
+                isLoading={isLoading && message.role === 'assistant' && !message.content && !message.audio_file && !message.streaming_complete && (!message.reasoning || message.reasoning.length === 0)}
               />
             ))}
             {isLoading && messages[messages.length - 1]?.role === 'user' && (

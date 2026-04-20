@@ -6,3 +6,4 @@ export { ChatWindow } from './ChatWindow';
 export { ChatSidebar } from './ChatSidebar';
 export { ChatInput } from './ChatInput';
 export { FileUploadModal } from './FileUploadModal';
+export { ReasoningBlock } from './ReasoningBlock';
