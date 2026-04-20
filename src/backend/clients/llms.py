@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Optional, List, Dict, Union
+from typing import Optional, List, Dict, Union, AsyncGenerator
 from langchain_openai import ChatOpenAI
 
 from .llm_providers import GeminiProvider, OpenAIProvider, DeepSeekProvider
@@ -69,11 +69,12 @@ class GenerationClient:
 
     async def answer_stream(
         self, prompt: str, chat_history: Optional[List[Dict]] = None
-    ):
+    ) -> AsyncGenerator[str, None]:
         if self.provider is None:
             raise RuntimeError("Provider not set.")
         self.logger.info(f"Generating answer for prompt with {self.provider.model}")
-        return self.provider.generate_stream(prompt, chat_history or [])
+        async for chunk in self.provider.generate_stream(prompt, chat_history or []):
+            yield chunk
 
     @staticmethod
     def construct_prompt(query: str, role: str) -> Dict[str, str]:

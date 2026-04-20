@@ -46,22 +46,27 @@ class EmbeddingClient:
             self.client = genai.Client(api_key=self.settings.GEMINI_API_KEY)
             self.logger.info(f"Embedding texts using Google")
             try:
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self.client.models.embed_content(
-                        model=self.settings.GEMINI_EMBEDDING_MODEL,
-                        contents=text,
-                        config=types.EmbedContentConfig(
-                            output_dimensionality=self.settings.EMBEDDING_DIMENSION
+                batch_size = 100
+                all_embeddings = []
+                for i in range(0, len(text), batch_size):
+                    batch = text[i : i + batch_size]
+                    loop = asyncio.get_event_loop()
+                    response = await loop.run_in_executor(
+                        None,
+                        lambda b=batch: self.client.models.embed_content(
+                            model=self.settings.GEMINI_EMBEDDING_MODEL,
+                            contents=b,
+                            config=types.EmbedContentConfig(
+                                output_dimensionality=self.settings.EMBEDDING_DIMENSION
+                            ),
                         ),
-                    ),
-                )
-                if not response.embeddings:
-                    self.logger.error("No embeddings returned by Google")
-                    return None
+                    )
+                    if not response.embeddings:
+                        self.logger.error("No embeddings returned by Google")
+                        return None
+                    all_embeddings.extend([res.values for res in response.embeddings])
                 self.logger.info(f"Successfully embedded text with Google")
-                return [res.values for res in response.embeddings]
+                return all_embeddings
             except Exception as e:
                 self.logger.error(f"Error while embedding text with Google: {str(e)}")
                 return None

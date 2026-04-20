@@ -66,9 +66,12 @@ class QrantVectorDB:
             return False
 
     async def create_collection(
-        self, collection_name: str, vector_size: int, do_reset: bool = False
+        self, collection_name: str, vector_size: int, do_reset: bool = False, provider: str = "cohere"
     ) -> bool:
         try:
+            if provider == "cohere":
+                vector_size = 1024
+                
             self.logger.info(
                 f"Creating collection: {collection_name} with vector size: {vector_size}"
             )
