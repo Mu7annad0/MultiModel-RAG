@@ -41,6 +41,38 @@ function App() {
     }
   }, [isDark]);
 
+  // Load preferences from localStorage (runs once on mount)
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  useEffect(() => {
+    const savedModel = localStorage.getItem('selected_model') as ModelProvider | null;
+    const savedAudio = localStorage.getItem('generate_audio');
+    const savedTheme = localStorage.getItem('is_dark');
+    
+    if (savedModel) setSelectedModel(savedModel);
+    if (savedAudio !== null) setGenerateAudio(savedAudio === 'true');
+    if (savedTheme !== null) setIsDark(savedTheme === 'true');
+    setPrefsLoaded(true);
+  }, []);
+
+  // Save preferences to localStorage (only after initial load)
+  useEffect(() => {
+    if (prefsLoaded) {
+      localStorage.setItem('selected_model', selectedModel);
+    }
+  }, [selectedModel, prefsLoaded]);
+
+  useEffect(() => {
+    if (prefsLoaded) {
+      localStorage.setItem('generate_audio', String(generateAudio));
+    }
+  }, [generateAudio, prefsLoaded]);
+
+  useEffect(() => {
+    if (prefsLoaded) {
+      localStorage.setItem('is_dark', String(isDark));
+    }
+  }, [isDark, prefsLoaded]);
+
   // Load chats on mount
   useEffect(() => {
     loadChats();
@@ -99,6 +131,54 @@ function App() {
     }
   }, []);
 
+  // Persist reasoning to sessionStorage
+  const saveReasoning = (messageId: string, reasoning: string[]) => {
+    try {
+      const stored = sessionStorage.getItem('chat_reasoning');
+      const existing = stored ? JSON.parse(stored) : {};
+      existing[messageId] = reasoning;
+      sessionStorage.setItem('chat_reasoning', JSON.stringify(existing));
+    } catch (e) {
+      console.error('Failed to save reasoning:', e);
+    }
+  };
+
+  const saveReasoningByContent = (content: string, reasoning: string[]) => {
+    try {
+      const stored = sessionStorage.getItem('chat_reasoning');
+      const existing = stored ? JSON.parse(stored) : {};
+      const contentKey = `content_${content.slice(0, 50).replace(/\s+/g, '_')}`;
+      existing[contentKey] = reasoning;
+      sessionStorage.setItem('chat_reasoning', JSON.stringify(existing));
+    } catch (e) {
+      console.error('Failed to save reasoning by content:', e);
+    }
+  };
+
+  const loadReasoning = (content: string): string[] | undefined => {
+    try {
+      const stored = sessionStorage.getItem('chat_reasoning');
+      if (stored) {
+        const existing = JSON.parse(stored);
+        const contentKey = `content_${content.slice(0, 50).replace(/\s+/g, '_')}`;
+        if (existing[contentKey]) {
+          return existing[contentKey];
+        }
+        for (const [key, value] of Object.entries(existing)) {
+          if (key.startsWith('content_') && Array.isArray(value)) {
+            const reasoningContent = (value as string[]).join('');
+            if (content.includes(reasoningContent.slice(0, 30))) {
+              return value as string[];
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load reasoning:', e);
+    }
+    return undefined;
+  };
+
   const handleSelectChat = useCallback(async (chatId: number) => {
     if (chatId === activeChatId) return;
     
@@ -115,6 +195,7 @@ function App() {
         content: msg.content,
         timestamp: new Date(msg.created_at).getTime(),
         streaming_complete: true,
+        reasoning: msg.role === 'assistant' ? loadReasoning(msg.content) : undefined,
       }));
       
       setMessages(formattedMessages);
@@ -153,8 +234,22 @@ function App() {
         setActiveChatId(null);
         setMessages([]);
       }
-    } catch (error) {
-      console.error('Failed to delete chat:', error);
+    } catch (error: any) {
+      // If 404, chat is already gone from backend - remove from local state anyway
+      if (error?.response?.status === 404) {
+        setChats(prev => prev.filter(chat => chat.id !== chatId));
+        setChatFiles(prev => {
+          const next = new Map(prev);
+          next.delete(chatId);
+          return next;
+        });
+        if (activeChatId === chatId) {
+          setActiveChatId(null);
+          setMessages([]);
+        }
+      } else {
+        console.error('Failed to delete chat:', error);
+      }
     }
   }, [activeChatId]);
 
@@ -215,6 +310,7 @@ function App() {
       role: 'assistant',
       content: '',
       chunks: [],
+      reasoning: [],
       streaming_complete: false,
       timestamp: Date.now() + 1,
     };
@@ -222,7 +318,7 @@ function App() {
 
     // Update chat title in the background (don't block the chat)
     if (isFirstMessage) {
-      updateChatTitle(activeChatId, query)
+      updateChatTitle(activeChatId, query, selectedModel)
         .then(titleResponse => {
           // Update the chat name in the list
           setChats(prev => prev.map(chat => 
@@ -230,6 +326,8 @@ function App() {
               ? { ...chat, chat_name: titleResponse.title }
               : chat
           ));
+          // Reload chats to ensure all data is fresh
+          loadChats();
         })
         .catch(error => {
           console.error('Failed to update chat title:', error);
@@ -254,6 +352,32 @@ function App() {
                 ...prev[idx],
                 content: prev[idx].content + chunk.content,
               };
+              return updated;
+            });
+          } else if (chunk.type === 'reasoning' && typeof chunk.content === 'string') {
+            console.log('Received reasoning chunk:', chunk.content);
+            setMessages(prev => {
+              const idx = prev.findIndex(m => m.id === assistantMessageId);
+              if (idx === -1) return prev;
+              const updated = [...prev];
+              const currentReasoning = updated[idx].reasoning || [];
+              const content = chunk.content as string;
+              
+              // Simple approach: just add new reasoning steps
+              // Filter out duplicates
+              if (!currentReasoning.includes(content)) {
+                const newReasoning = [...currentReasoning, content];
+                console.log('Updated reasoning:', newReasoning);
+                updated[idx] = {
+                  ...prev[idx],
+                  reasoning: newReasoning,
+                };
+                saveReasoning(assistantMessageId, newReasoning);
+                // Also save by content for later retrieval after refresh
+                if (updated[idx].content) {
+                  saveReasoningByContent(updated[idx].content, newReasoning);
+                }
+              }
               return updated;
             });
           } else if (chunk.type === 'chunks' && Array.isArray(chunk.content)) {
@@ -290,6 +414,10 @@ function App() {
           ...prev[idx],
           streaming_complete: true,
         };
+        // Save reasoning by content for retrieval after refresh
+        if (updated[idx].reasoning && updated[idx].reasoning.length > 0 && updated[idx].content) {
+          saveReasoningByContent(updated[idx].content, updated[idx].reasoning);
+        }
         return updated;
       });
     } catch (streamError) {

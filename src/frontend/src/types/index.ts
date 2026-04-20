@@ -28,6 +28,7 @@ export interface Message {
   audio_file?: string | null;
   streaming_complete?: boolean;
   timestamp: number;
+  reasoning?: string[];
 }
 
 export interface FileUploadState {

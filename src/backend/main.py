@@ -3,7 +3,7 @@ import uuid
 import json
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, Literal
 from fastapi import FastAPI, File, UploadFile, status, Depends
 from sqlalchemy import update
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
@@ -66,6 +66,7 @@ class NewChatRequest(BaseModel):
 
 class UpdateChatTitleRequest(BaseModel):
     message: str
+    provider: Literal["openai", "gemini", "deepseek"] = "openai"
 
 
 @app.get("/")
@@ -126,8 +127,6 @@ async def upload_file(
         logger.info(f"Document indexed successfully: {document_id}")
 
         new_chat_id = None
-        # If no chat_id is provided, create a new chat with generic name
-        # The title will be updated after the first user message
         if not chat_id:
             chat_title = "new chat"
             new_chat_id = await app.chat_history_manager.create_chat(
@@ -167,7 +166,6 @@ async def upload_file(
 @app.post("/new_chat")
 async def new_chat(request: NewChatRequest):
     try:
-        # Use 'new chat' as default title - will be updated after first user query
         chat_title = "new chat"
 
         chat_id = await app.chat_history_manager.create_chat(
@@ -194,7 +192,6 @@ async def new_chat(request: NewChatRequest):
 
 @app.get("/chats")
 async def list_chats():
-    """Get all chats ordered by most recently updated."""
     try:
         chats = await app.chat_history_manager.get_all_chats()
         return JSONResponse(
@@ -211,9 +208,7 @@ async def list_chats():
 
 @app.get("/chats/{chat_id}/messages")
 async def get_chat_messages(chat_id: int):
-    """Get all messages for a specific chat."""
     try:
-        # Check if chat exists
         chat = await app.chat_history_manager.get_chat(chat_id)
         if not chat:
             return JSONResponse(
@@ -240,7 +235,6 @@ async def get_chat_messages(chat_id: int):
 
 @app.delete("/chats/{chat_id}")
 async def delete_chat(chat_id: int):
-    """Delete a chat and all its messages."""
     try:
         success = await app.chat_history_manager.delete_chat(chat_id)
 
@@ -266,33 +260,31 @@ async def delete_chat(chat_id: int):
 
 @app.patch("/chats/{chat_id}")
 async def update_chat_title(chat_id: int, request: UpdateChatTitleRequest):
-    """Generate and update a chat's title from a message."""
     try:
-        # Generate title from the message
         title = "Untitled Chat"
-        
+
         try:
-            title = await app.advanced_rag_client.generate_chat_title(
-                prompt.CHAT_TITLE_PROMPT, request.message
+            generation_client = GenerationClient(
+                settings=app.settings,
+                provider=request.provider,
             )
-            
-            # Clean and validate the generated title
+            title = await generation_client.answer(
+                prompt.CHAT_TITLE_PROMPT.substitute(message=request.message), []
+            )
+
             title = title.strip().strip("\"'").strip()
-            
+
             if len(title) > 100:
                 title = title[:97] + "..."
-            
-            # Ensure we have a valid title
+
             if not title:
                 title = "Untitled Chat"
-                
+
         except Exception as e:
             logger.error(f"Error generating chat title: {str(e)}")
-            # title already set to default above
 
         logger.info(f"Generated title: {title} for chat {chat_id}")
 
-        # Update the chat with the generated title
         await app.chat_history_manager.update_chat_name(chat_id, title)
         logger.info(f"Updated chat {chat_id} title to: {title}")
 
@@ -331,7 +323,6 @@ async def chat(chat_request: ChatRequest):
     document_id = chat_request.document_id
     logger.info(f"Looking for chat with document_id: {document_id}")
 
-    # Get chat info by document_id to retrieve the chat_id
     chat_info = await app.chat_history_manager.get_chat_by_document_id(document_id)
     logger.info(f"chat_info result: {chat_info}")
     if not chat_info:
@@ -381,13 +372,15 @@ async def handle_streaming_response(
                 document_id=controller.document_id,
                 query=chat_request.query,
                 chat_history=history,
-                filter=app.settings.FILTER,
-                split=app.settings.SPLIT,
+                use_filter=app.settings.FILTER,
+                use_split=app.settings.SPLIT,
                 limit=6,
             ):
                 if event_type == "text":
                     full_answer += data
                     yield json.dumps({"type": "text", "content": data})
+                elif event_type == "reasoning":
+                    yield json.dumps({"type": "reasoning", "content": data})
                 elif event_type == "chunks":
                     retrieved_results = data
                     yield json.dumps({"type": "chunks", "content": data})
@@ -442,8 +435,8 @@ async def handle_non_streaming_response(
         document_id=controller.document_id,
         query=chat_request.query,
         chat_history=history,
-        filter=app.settings.FILTER,
-        split=app.settings.SPLIT,
+        use_filter=app.settings.FILTER,
+        use_split=app.settings.SPLIT,
         limit=6,
     )
 
@@ -520,7 +513,6 @@ async def run_evaluation(
 
 @app.get("/audio/{filename}")
 async def get_audio(filename: str):
-    """Serve audio files from the voices directory."""
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     voices_dir = os.path.join(base_dir, "voices")
     file_path = os.path.join(voices_dir, filename)

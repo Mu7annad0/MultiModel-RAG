@@ -33,9 +33,10 @@ export const deleteChat = async (chatId: number): Promise<void> => {
   await apiClient.delete(`/chats/${chatId}`);
 };
 
-export const updateChatTitle = async (chatId: number, message: string): Promise<{ title: string; message: string }> => {
+export const updateChatTitle = async (chatId: number, message: string, provider: string): Promise<{ title: string; message: string }> => {
   const response = await apiClient.patch<{ title: string; message: string }>(`/chats/${chatId}`, {
     message,
+    provider,
   });
   return response.data;
 };
@@ -62,7 +63,7 @@ export const sendChatMessage = async (request: ChatRequest): Promise<ChatRespons
 };
 
 export interface StreamChunk {
-  type: 'text' | 'chunks' | 'audio';
+  type: 'text' | 'chunks' | 'audio' | 'reasoning';
   content: string | string[];
 }
 
